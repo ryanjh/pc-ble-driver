@@ -57,6 +57,7 @@
 /** Includes */
 #include "ble.h"
 #include "sd_rpc.h"
+#include "ble_ipsp.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -345,9 +346,82 @@ static bool find_adv_name(const ble_gap_evt_adv_report_t *p_adv_report, const ch
  */
 static uint32_t ble_stack_init()
 {
-    uint32_t            err_code;
+    uint32_t     ram_start = 0;
+    uint32_t            err_code = NRF_SUCCESS;
     uint32_t *          app_ram_base = NULL;
 
+#if NRF_SD_BLE_API >= 6
+    {
+        ble_cfg_t    ble_cfg;
+
+        // Configure the maximum number of connections.
+        // memset(&ble_cfg, 0, sizeof(ble_cfg));
+        // ble_cfg.gap_cfg.role_count_cfg.periph_role_count  = 0;
+        // ble_cfg.gap_cfg.role_count_cfg.central_role_count = BLE_IPSP_MAX_CHANNELS;
+        // ble_cfg.gap_cfg.role_count_cfg.central_sec_count  = 0;
+        // err_code = sd_ble_cfg_set(m_adapter, BLE_GAP_CFG_ROLE_COUNT, &ble_cfg, ram_start);
+
+        if (err_code == NRF_SUCCESS)
+        {
+            memset(&ble_cfg, 0, sizeof(ble_cfg));
+
+            // Configure total number of connections.
+            ble_cfg.conn_cfg.conn_cfg_tag                     = 35;
+            ble_cfg.conn_cfg.params.gap_conn_cfg.conn_count   = BLE_IPSP_MAX_CHANNELS;
+            ble_cfg.conn_cfg.params.gap_conn_cfg.event_length = BLE_GAP_EVENT_LENGTH_DEFAULT;
+            err_code = sd_ble_cfg_set(m_adapter, BLE_CONN_CFG_GAP, &ble_cfg, ram_start);
+
+        }
+
+        // if (err_code ==  NRF_SUCCESS)
+        // {
+        //     memset(&ble_cfg, 0, sizeof(ble_cfg));
+
+        //     // Configure the number of custom UUIDS.
+        //     ble_cfg.common_cfg.vs_uuid_cfg.vs_uuid_count = 0;
+        //     err_code = sd_ble_cfg_set(m_adapter, BLE_COMMON_CFG_VS_UUID, &ble_cfg, ram_start);
+        // }
+
+        if (err_code == NRF_SUCCESS)
+        {
+            memset(&ble_cfg, 0, sizeof(ble_cfg));
+
+            // Set L2CAP channel configuration
+
+            // @note The TX MPS and RX MPS of initiator and acceptor are not symmetrically set.
+            // This will result in effective MPS of 50 in reach direction when using the initiator and
+            // acceptor example against each other. In the IPSP, the TX MPS is set to a higher value
+            // as Linux which is the border router for 6LoWPAN examples uses default RX MPS of 230
+            // bytes. Setting TX MPS of 212 in place of 50 results in better credit and hence bandwidth
+            // utilization.
+            ble_cfg.conn_cfg.conn_cfg_tag                        = 35;
+            ble_cfg.conn_cfg.params.l2cap_conn_cfg.rx_mps        = BLE_IPSP_RX_MPS;
+            ble_cfg.conn_cfg.params.l2cap_conn_cfg.rx_queue_size = BLE_IPSP_RX_BUFFER_COUNT;
+            ble_cfg.conn_cfg.params.l2cap_conn_cfg.tx_mps        = BLE_IPSP_TX_MPS;
+            ble_cfg.conn_cfg.params.l2cap_conn_cfg.tx_queue_size = 1;
+            ble_cfg.conn_cfg.params.l2cap_conn_cfg.ch_count      = 1; // One L2CAP channel per link.
+            err_code = sd_ble_cfg_set(m_adapter, BLE_CONN_CFG_L2CAP, &ble_cfg, ram_start);
+            if (err_code == NRF_SUCCESS)
+            {
+                printf("BLE_CONN_CFG_L2CAP done\n");
+            }
+        }
+
+        // if (err_code == NRF_SUCCESS)
+        // {
+        //     memset(&ble_cfg, 0, sizeof(ble_cfg));
+
+        //     // Set the ATT table size.
+        //     ble_cfg.gatts_cfg.attr_tab_size.attr_tab_size = 256;
+        //     err_code = sd_ble_cfg_set(m_adapter, BLE_GATTS_CFG_ATTR_TAB_SIZE, &ble_cfg, ram_start);
+        // }
+
+        if (err_code == NRF_SUCCESS)
+        {
+            printf("BLE config done\n");
+        }
+    }
+#endif
 #if NRF_SD_BLE_API <= 3
     ble_enable_params_t ble_enable_params;
     memset(&ble_enable_params, 0, sizeof(ble_enable_params));
@@ -361,7 +435,6 @@ static uint32_t ble_stack_init()
     ble_enable_params.common_enable_params.p_conn_bw_counts = NULL;
     ble_enable_params.common_enable_params.vs_uuid_count    = 1;
 #endif
-
 #if NRF_SD_BLE_API <= 3
     ble_enable_params.gap_enable_params.periph_conn_count   = 1;
     ble_enable_params.gap_enable_params.central_conn_count  = 1;
@@ -384,7 +457,17 @@ static uint32_t ble_stack_init()
             fflush(stdout);
             break;
     }
-
+#if NRF_SD_BLE_API >= 6
+    ble_version_t   version;
+    ble_version_t * p_version = &version;
+    err_code = sd_ble_version_get(m_adapter, p_version);
+    if (err_code == NRF_SUCCESS) {
+        //uint8_t   version_number;    /**< Link Layer Version number. See https://www.bluetooth.org/en-us/specification/assigned-numbers/link-layer for assigned values. */
+        //uint16_t  company_id;        /**< Company ID, Nordic Semiconductor's company ID is 89 (0x0059) (https://www.bluetooth.org/apps/content/Default.aspx?doc_id=49708). */
+        //uint16_t  subversion_number;
+        printf("sd_ble_version_get done %x,%x,%x\n", version.version_number, version.company_id, version.subversion_number);
+    }
+#endif
     return err_code;
 }
 
@@ -920,6 +1003,7 @@ static void on_exchange_mtu_response(const ble_gattc_evt_t * const p_ble_gattc_e
  * @param[in] adapter The transport adapter.
  * @param[in] p_ble_evt Bluetooth stack event.
  */
+#define NRF_ERROR_BLE_IPSP_CHANNEL_ALREADY_EXISTS (NRF_ERROR_BLE_IPSP_ERR_BASE + 0x0001)
 static void ble_evt_dispatch(adapter_t * adapter, ble_evt_t * p_ble_evt)
 {
     if (p_ble_evt == NULL)
@@ -933,6 +1017,24 @@ static void ble_evt_dispatch(adapter_t * adapter, ble_evt_t * p_ble_evt)
     {
         case BLE_GAP_EVT_CONNECTED:
             on_connected(&(p_ble_evt->evt.gap_evt));
+#if NRF_SD_BLE_API >= 6
+            printf("BLE_GAP_EVT_CONNECTED NRF_SD_BLE_API >= 6\n");
+            if (m_connected_devices)
+            {
+                printf("BLE_GAP_EVT_CONNECTED m_connected_devices\n");
+                ble_ipsp_handle_t ipsp_handle;
+                ipsp_handle.conn_handle = m_connection_handle;
+                uint32_t err_code = ble_ipsp_connect(m_adapter, &ipsp_handle);
+                if (err_code != NRF_SUCCESS
+                    && err_code != NRF_ERROR_BLE_IPSP_CHANNEL_ALREADY_EXISTS) {
+                    printf("ble_ipsp_connect fail %x\n", err_code);
+                }
+            }
+            else
+            {
+                printf("No physical link exists with peer\n");
+            }
+#endif
             break;
 
         case BLE_GAP_EVT_DISCONNECTED:
@@ -992,6 +1094,12 @@ static void ble_evt_dispatch(adapter_t * adapter, ble_evt_t * p_ble_evt)
     }
 }
 
+static uint32_t app_ipsp_event_handler(ble_ipsp_handle_t const * p_handle,
+                                       ble_ipsp_evt_t const    * p_evt)
+{
+    return NRF_SUCCESS;
+}
+
 
 /** Main */
 
@@ -1038,6 +1146,19 @@ int main(int argc, char * argv[])
         return error_code;
     }
 
+#if NRF_SD_BLE_API >= 6
+    ble_ipsp_init_t init_param;
+    init_param.evt_handler = app_ipsp_event_handler;
+
+    uint32_t err_code = ble_ipsp_init(m_adapter, &init_param);
+
+    if (error_code != NRF_SUCCESS)
+    {
+        return error_code;
+    }
+    printf("ble_ipsp_init done\n");
+#endif
+
 #if NRF_SD_BLE_API < 5
     error_code = ble_options_set();
 
@@ -1047,12 +1168,50 @@ int main(int argc, char * argv[])
     }
 #endif
 
-    error_code = scan_start();
+    // error_code = scan_start();
 
-    if (error_code != NRF_SUCCESS)
+    // if (error_code != NRF_SUCCESS)
+    // {
+    //     return error_code;
+    // }
+
+#if NRF_SD_BLE_API >= 6
     {
-        return error_code;
+        uint32_t err_code;
+        static const ble_gap_addr_t m_peer_addr =
+        {
+            .addr_type = BLE_GAP_ADDR_TYPE_PUBLIC,
+            .addr = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x00}
+        };
+
+        static const ble_gap_scan_params_t m_scan_param =
+        {
+             .active         = 0,                          // Passive scanning.
+             .filter_policy  = BLE_GAP_SCAN_FP_ACCEPT_ALL, // Do not use whitelist.
+             .interval       = (uint16_t)0x00A0,    // Scan interval.
+             .window         = (uint16_t)0x0050,      // Scan window.
+             .timeout        = 0,                          // Never stop scanning unless explicit asked to.
+             .scan_phys      = BLE_GAP_PHY_AUTO            // Automatic PHY selection.
+        };
+
+        static const ble_gap_conn_params_t m_connection_param =
+        {
+            .min_conn_interval = (uint16_t)MSEC_TO_UNITS(30, UNIT_1_25_MS),   // Minimum connection
+            .max_conn_interval = (uint16_t)MSEC_TO_UNITS(60, UNIT_1_25_MS),   // Maximum connection
+            .slave_latency     = 0,                                   // Slave latency
+            .conn_sup_timeout  = (uint16_t)MSEC_TO_UNITS(4000, UNIT_10_MS)        // Supervision time-out
+        };
+
+        err_code = sd_ble_gap_connect(m_adapter, &m_peer_addr,&m_scan_param, &m_connection_param, 35);
+
+        if (err_code != NRF_SUCCESS)
+        {
+            printf("Connection Request Failed, reason 0x%08lX\n", err_code);
+        } else {
+            printf("Connection Request done\n");
+        }
     }
+#endif
 
     // Endlessly loop.
     for (;;)
