@@ -63,3 +63,18 @@ uint32_t sd_ble_l2cap_ch_setup(adapter_t *adapter, uint16_t conn_handle,
 
     return encode_decode(adapter, encode_function, decode_function);
 }
+
+uint32_t sd_ble_l2cap_ch_tx(adapter_t *adapter, uint16_t conn_handle,
+                            uint16_t local_cid, ble_data_t const *p_sdu_buf)
+{
+    encode_function_t encode_function = [&](uint8_t *buffer, uint32_t *length) -> uint32_t {
+        return ble_l2cap_ch_tx_req_enc(conn_handle, local_cid, p_sdu_buf, buffer, length);
+    };
+
+    decode_function_t decode_function = [&](uint8_t *buffer, uint32_t length,
+                                            uint32_t *result) -> uint32_t {
+        return ble_l2cap_ch_tx_rsp_dec(buffer, length, result);
+    };
+
+    return encode_decode(adapter, encode_function, decode_function);
+}

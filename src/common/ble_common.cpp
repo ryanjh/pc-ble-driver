@@ -75,7 +75,7 @@ uint32_t encode_decode(adapter_t *adapter, const encode_function_t &encode_funct
 
     // Create rx_buffer
     std::shared_ptr<std::vector<uint8_t>> rx_buffer;
-    
+
     if (decode_function)
     {
         rx_buffer = std::make_shared<std::vector<uint8_t>>(SER_HAL_TRANSPORT_MAX_PKT_SIZE);
@@ -116,8 +116,13 @@ uint32_t encode_decode(adapter_t *adapter, const encode_function_t &encode_funct
 
     if (decode_function)
     {
+        printf("decode_function rx_buffer->size:%d [", rx_buffer->size());
+        for (int i =  0; i < rx_buffer->size(); i++)
+            printf("%x,", rx_buffer->data()[i]);
+        printf("]\n");
         err_code = decode_function(rx_buffer->data(), static_cast<uint32_t>(rx_buffer->size()),
                                    &result_code);
+        printf("decode_function err_code:%d result_code:%d\n", err_code, result_code);
     }
 
     if (AdapterInternal::isInternalError(err_code))
